@@ -24,7 +24,7 @@ cudnn.benchmark = True  # set to true only if inputs to model are fixed size; ot
 
 # Training parameters
 start_epoch = 0
-epochs = 1  # number of epochs to train for (if early stopping is not triggered)
+epochs = 10  # number of epochs to train for (if early stopping is not triggered)
 epochs_since_improvement = 0  # keeps track of number of epochs since there's been an improvement in validation BLEU
 batch_size = 1
 workers = 0  # for data-loading; right now, only 1 works with h5py
@@ -35,7 +35,10 @@ alpha_c = 1.  # regularization parameter for 'doubly stochastic attention', as i
 best_bleu4 = 0.  # BLEU-4 score right now
 print_freq = 100  # print training/validation stats every __ batches
 fine_tune_encoder = False  # fine-tune encoder?
-checkpoint = None  # path to checkpoint, None if none
+checkpoint = None
+path_checkpoint = "checkpoint_atlas_1_cap_per_img_1_min_word_freq.pth.tar"
+if os.path.exists(path_checkpoint):
+    checkpoint = path_checkpoint
 
 
 def main():
@@ -52,6 +55,7 @@ def main():
 
     # Initialize / load checkpoint
     if checkpoint is None:
+        print("checkpoint is none")
         decoder = DecoderWithAttention(attention_dim=attention_dim,
                                        embed_dim=emb_dim,
                                        decoder_dim=decoder_dim,
@@ -65,6 +69,7 @@ def main():
                                              lr=encoder_lr) if fine_tune_encoder else None
 
     else:
+        print("checkpoint is not none")
         checkpoint = torch.load(checkpoint)
         start_epoch = checkpoint['epoch'] + 1
         epochs_since_improvement = checkpoint['epochs_since_improvement']
