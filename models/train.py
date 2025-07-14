@@ -331,4 +331,4 @@ def validate(val_loader, encoder, decoder, criterion):
 
 if __name__ == '__main__':
     main()
-    print(5)
+
