@@ -1,4 +1,6 @@
 import os
+import shutil
+
 import numpy as np
 import h5py
 import json
@@ -167,6 +169,20 @@ def save_checkpoint(data_name, epoch, epochs_since_improvement, encoder, decoder
     if is_best:
         torch.save(state, 'BEST_' + filename)
     print("Checkpoint will be saved to:", os.path.abspath(filename))
+
+    # dung cho colab
+    # drive_path = '/content/drive/MyDrive/checkpoints'
+    # try:
+    #     if os.path.exists('/content/drive'):
+    #         os.makedirs(drive_path, exist_ok=True)
+    #         shutil.copy(filename, drive_path)
+    #         print("Copied checkpoint to Google Drive: {}/{}".format(drive_path, filename))
+    #
+    #         if is_best:
+    #             shutil.copy('BEST_' + filename, drive_path)
+    #             print("Copied BEST checkpoint to Google Drive: {}/BEST_{}".format(drive_path, filename))
+    # except Exception as e:
+    #     print("Could not copy checkpoint to Google Drive:", e)
 
 
 class AverageMeter(object):
