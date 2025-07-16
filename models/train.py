@@ -9,6 +9,8 @@ from models import Encoder, DecoderWithAttention
 from datasets import *
 from utils import *
 from nltk.translate.bleu_score import corpus_bleu
+from torch.optim.lr_scheduler import StepLR
+
 
 # Data parameters
 data_folder = './output'  # folder with data files saved by create_input_files.py
@@ -18,13 +20,13 @@ data_name = 'atlas_1_cap_per_img_1_min_word_freq'  # base name shared by data fi
 emb_dim = 512  # dimension of word embeddings
 attention_dim = 512  # dimension of attention linear layers
 decoder_dim = 512  # dimension of decoder RNN
-dropout = 0.5
+dropout = 0.6
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # sets device for model and PyTorch tensors
 cudnn.benchmark = True  # set to true only if inputs to model are fixed size; otherwise lot of computational overhead
 
 # Training parameters
 start_epoch = 0
-epochs = 10  # number of epochs to train for (if early stopping is not triggered)
+epochs = 100  # number of epochs to train for (if early stopping is not triggered)
 epochs_since_improvement = 0  # keeps track of number of epochs since there's been an improvement in validation BLEU
 batch_size = 1
 workers = 0  # for data-loading; right now, only 1 works with h5py
@@ -36,7 +38,10 @@ best_bleu4 = 0.  # BLEU-4 score right now
 print_freq = 100  # print training/validation stats every __ batches
 fine_tune_encoder = False  # fine-tune encoder?
 checkpoint = None
+
 path_checkpoint = "checkpoint_atlas_1_cap_per_img_1_min_word_freq.pth.tar"
+#dung cho colab
+# path_checkpoint = "content/drive/MyDrive/checkpoints/checkpoint_atlas_1_cap_per_img_1_min_word_freq.pth.tar"
 if os.path.exists(path_checkpoint):
     checkpoint = path_checkpoint
 
@@ -45,7 +50,6 @@ def main():
     """
     Training and validation.
     """
-
     global best_bleu4, epochs_since_improvement, checkpoint, start_epoch, fine_tune_encoder, data_name, word_map
 
     # Read word map
@@ -63,14 +67,14 @@ def main():
                                        dropout=dropout)
         decoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, decoder.parameters()),
                                              lr=decoder_lr)
+
         encoder = Encoder()
         encoder.fine_tune(fine_tune_encoder)
         encoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder.parameters()),
                                              lr=encoder_lr) if fine_tune_encoder else None
-
     else:
         print("checkpoint is not none")
-        checkpoint = torch.load(checkpoint)
+        checkpoint = torch.load(checkpoint, map_location=torch.device('cpu'))
         start_epoch = checkpoint['epoch'] + 1
         epochs_since_improvement = checkpoint['epochs_since_improvement']
         best_bleu4 = checkpoint['bleu-4']
@@ -78,12 +82,12 @@ def main():
         decoder_optimizer = checkpoint['decoder_optimizer']
         encoder = checkpoint['encoder']
         encoder_optimizer = checkpoint['encoder_optimizer']
-        if fine_tune_encoder is True and encoder_optimizer is None:
+        if fine_tune_encoder and encoder_optimizer is None:
             encoder.fine_tune(fine_tune_encoder)
             encoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder.parameters()),
                                                  lr=encoder_lr)
 
-    # Move to GPU, if available
+    # Move models to device
     decoder = decoder.to(device)
     encoder = encoder.to(device)
 
@@ -100,16 +104,17 @@ def main():
         CaptionDataset(data_folder, data_name, 'VAL', transform=transforms.Compose([normalize])),
         batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
 
+    # Learning rate scheduler (always create after decoder_optimizer is ready)
+    scheduler = StepLR(decoder_optimizer, step_size=5, gamma=0.7)
+
+    # Advance scheduler to match resumed epoch (if using checkpoint)
+    scheduler.last_epoch = start_epoch - 1
+
     # Epochs
     for epoch in range(start_epoch, epochs):
 
-        # Decay learning rate if there is no improvement for 8 consecutive epochs, and terminate training after 20
         if epochs_since_improvement == 20:
             break
-        if epochs_since_improvement > 0 and epochs_since_improvement % 8 == 0:
-            adjust_learning_rate(decoder_optimizer, 0.8)
-            if fine_tune_encoder:
-                adjust_learning_rate(encoder_optimizer, 0.8)
 
         # One epoch's training
         train(train_loader=train_loader,
@@ -126,18 +131,26 @@ def main():
                                 decoder=decoder,
                                 criterion=criterion)
 
-        # Check if there was an improvement
+        # Check improvement
         is_best = recent_bleu4 > best_bleu4
         best_bleu4 = max(recent_bleu4, best_bleu4)
         if not is_best:
             epochs_since_improvement += 1
-            print("\nEpochs since last improvement: %d\n" % (epochs_since_improvement,))
+            print(f"\nEpochs since last improvement: {epochs_since_improvement}\n")
         else:
             epochs_since_improvement = 0
 
         # Save checkpoint
         save_checkpoint(data_name, epoch, epochs_since_improvement, encoder, decoder, encoder_optimizer,
                         decoder_optimizer, recent_bleu4, is_best)
+
+        # Step the LR scheduler
+        scheduler.step()
+
+        # (Optional) Print current LR
+        for param_group in decoder_optimizer.param_groups:
+            print(f"Current decoder LR: {param_group['lr']}")
+
 
 
 def train(train_loader, encoder, decoder, criterion, encoder_optimizer, decoder_optimizer, epoch):
