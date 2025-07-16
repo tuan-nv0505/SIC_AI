@@ -1,0 +1,9 @@
+fashion_small/
+output/
+fashion_small_dataset.json
+img_test.txt
+*.pyc
+.DS_Store
+.idea/
+*.pth.tar
+
